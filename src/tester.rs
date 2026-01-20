@@ -28,7 +28,8 @@ pub fn test_migration(target: &Target, primary_ip: Option<IpAddr>, migration_ip:
     result.peer_addr = Some(client.peer_addr);
     result.handshake_done = true;
 
-    if !wait_headers && migration_type.is_some(){
+    if !wait_headers && migration_type.is_some() {
+        println!("Unreachable");
         let status = match client.probe_path_and_migrate(migration_type.unwrap()){
             Ok(status) => status,
             Err(e) => {

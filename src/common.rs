@@ -119,11 +119,11 @@ pub fn prepare_hdr(url: &str) -> Option<Vec<quiche::h3::Header>>{
             panic!("Failed to parse addr for url {:?} reason : {:?}", url, e);
         }
     };
-
+    println!("Preparing headers for URL: {}", url);
     let authority = match url.port() {
         Some(port) => format!("{}:{}", url.host_str().unwrap(), port),
 
-        None => url.host_str().unwrap().to_string(),
+        None => format!("{}", url.host_str().unwrap()),
     };
     let mut headers = vec![
             quiche::h3::Header::new(b":method", b"GET"),

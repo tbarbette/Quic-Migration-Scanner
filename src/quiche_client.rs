@@ -117,8 +117,10 @@ impl QuicheClient{
         let authority = match url.port() {
             Some(port) => format!("{}:{}", url.host_str().unwrap(), port),
 
-            None => url.host_str().unwrap().to_string(),
+            None => format!("{}", url.host_str().unwrap())
         };
+        println!("Authority: {}", authority);
+        println!("Port: {:?}", url.port());
         let mut hdrs = vec![
                 quiche::h3::Header::new(b":method", b"GET"),
                 quiche::h3::Header::new(b":scheme", url.scheme().as_bytes()),
@@ -243,6 +245,7 @@ impl QuicheClient{
         }
 
         while !self.quiche_conn.as_mut().unwrap().is_established(){
+            debug!("Waiting for connection establishment...");
             match self.flush_output(self.force_socket){
                 Err(e) => return Err(e),
                 _ => ()
@@ -276,8 +279,9 @@ impl QuicheClient{
                 quiche::h3::Connection::with_transport(&mut self.quiche_conn.as_mut().unwrap(), &quiche::h3::Config::new().unwrap()).expect("Failed to create HTTP connection")
             );
         } 
-        let stream_id = match custom_headers{
+        let stream_id = match custom_headers {
             Some(hdrs) => {
+                println!("Using custom headers: {:?}", hdrs);
                 match self.h3_conn.as_mut().unwrap().send_request(self.quiche_conn.as_mut().unwrap(), &hdrs, true){
                     Ok(val) => val,
                     Err(e) => {
@@ -287,6 +291,7 @@ impl QuicheClient{
                 }
             },
             None => {
+                println!("Using default headers: {:?}", self.request_headers);
                 match self.h3_conn.as_mut().unwrap().send_request(self.quiche_conn.as_mut().unwrap(), &self.request_headers, true){
                     Ok(val) => val,
                     Err(e) => {
@@ -298,6 +303,7 @@ impl QuicheClient{
         };
         debug!("sent request id: {}", stream_id);
         while !self.quiche_conn.as_mut().unwrap().is_closed() && !self.quiche_conn.as_mut().unwrap().stream_finished(stream_id) && !self.end_now && !self.redirect{
+            println!("Stream not finished yet: {}", self.quiche_conn.as_mut().unwrap().stream_finished(stream_id));
             match self.flush_output(self.force_socket){
                 Err(e) => return Err(e),
                 _ => ()
@@ -308,7 +314,7 @@ impl QuicheClient{
             }
             self.handle_responses(file, migrate, migration_type, full_request);
         }
-        debug!("Request performed");
+        debug!("Request performed : {} {} {} {}", stream_id, self.quiche_conn.as_mut().unwrap().is_closed(), self.quiche_conn.as_mut().unwrap().stream_finished(stream_id), self.end_now);
         self.end_now = false;
         Ok(self.response_headers.clone())
     }
@@ -316,7 +322,7 @@ impl QuicheClient{
     pub fn perform_request_with_redirect(&mut self, custom_headers: Option<Vec<Header>>, file: &mut Option<File>, max_redirect: u32, migrate: bool, migration_type: Option<MigrationType>, full_request: bool) -> Result<Option<HashMap<String, String>>, TestError>{
         let mut new_headers = custom_headers;
         for _ in 0..max_redirect{
-            match self.perform_request(&new_headers, file, migrate, migration_type, full_request){
+            match self.perform_request(&new_headers, file, migrate, migration_type, full_request) {
                 Ok(hdrs) => {
                     match hdrs{
                         Some(map) => {
@@ -349,7 +355,8 @@ impl QuicheClient{
         }
 
         if !self.new_path_probed {
-            while self.quiche_conn.as_mut().unwrap().available_dcids() <= 0{
+            while self.quiche_conn.as_mut().unwrap().available_dcids() <= 0 {
+                debug!("Waiting for available DCIDs...");
                 match self.flush_output(self.force_socket){
                     Err(e) => return Err(e),
                     _ => ()
@@ -370,14 +377,15 @@ impl QuicheClient{
         }
 
         let timeout = Instant::now();
-        while !self.path_validated && timeout.elapsed().as_secs() < 1{
-            if migration_type == MigrationType::Standard{
-                match self.flush_output(self.force_socket){
+        while !self.path_validated && timeout.elapsed().as_secs() < 1 {
+            debug!("Waiting for path validation...");
+            if migration_type == MigrationType::Standard {
+                match self.flush_output(self.force_socket) {
                     Err(e) => return Err(e),
                     _ => ()
                 }
             } else {
-                match self.flush_primary_socket(){
+                match self.flush_primary_socket() {
                     Err(e) => return Err(e),
                     _ => ()
                 }
@@ -414,7 +422,8 @@ impl QuicheClient{
         }
     }
 
-    pub fn close(&mut self) -> Result<(), TestError>{
+    pub fn close(&mut self) -> Result<(), TestError> {
+        debug!("Closing connection");
         match self.quiche_conn.as_mut().unwrap().close(true, 0x100, b"kthxbye") {
             Ok(_) | Err(quiche::Error::Done) => (),
 
@@ -505,6 +514,7 @@ impl QuicheClient{
             };
 
             let local_addr = socket.local_addr().unwrap();
+            debug!("{}: got event {:?}", local_addr, event);
             'read: loop {
                 let (len, from) = match socket.recv_from(&mut self.buf) {
                     Ok(v) => v,
@@ -520,7 +530,7 @@ impl QuicheClient{
 
                 debug!("{}: got {} bytes", local_addr, len);
 
-                let recv_to = if self.force_socket == 2{
+                let recv_to = if self.force_socket == 2 {
                     self.primary_socket.local_addr().unwrap()
                 } else {
                     local_addr
@@ -574,7 +584,7 @@ impl QuicheClient{
 
                 Err(quiche::Error::Done) => {
                     debug!(
-                        "done writing",
+                        "done writing output",
                     );
                     break;
                 },
@@ -632,7 +642,7 @@ impl QuicheClient{
 
                 Err(quiche::Error::Done) => {
                     debug!(
-                        "done writing",
+                        "done writing primary",
                     );
                     break;
                 },
@@ -775,6 +785,7 @@ impl QuicheClient{
                     self.response_headers = Some(header_map);
 
                     if migrate{
+                        println!("Migrating!");
                         match self.probe_path_and_migrate(migration_type.unwrap()){
                             Ok(status) => {
                                 self.migration_status = Some(status);
@@ -792,6 +803,7 @@ impl QuicheClient{
                 },
     
                 Ok((stream_id, quiche::h3::Event::Data)) => {
+                    println!("Receiving data on stream {}", stream_id);
                     while let Ok(read) =
                     self.h3_conn.as_mut().unwrap().recv_body(self.quiche_conn.as_mut().unwrap(), stream_id, &mut self.buf)
                     {
@@ -814,6 +826,7 @@ impl QuicheClient{
                 },
     
                 Ok((_stream_id, quiche::h3::Event::Reset(_))) => {
+                    debug!("stream {} reset", _stream_id);
                     match self.quiche_conn.as_mut().unwrap().close(true, 0x100, b"kthxbye") {
                         Ok(_) | Err(quiche::Error::Done) => (),
     
