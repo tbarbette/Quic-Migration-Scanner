@@ -82,3 +82,77 @@ impl Parseable for Args {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(argv: &[&str]) -> Args {
+        let mut v = vec!["migration_checker"];
+        v.extend_from_slice(argv);
+        let docopt = docopt::Docopt::new(USAGE).unwrap().argv(v);
+        Args::with_docopt(&docopt)
+    }
+
+    #[test]
+    fn defaults() {
+        let a = parse(&["targets.csv"]);
+        assert_eq!(a.file_path, "targets.csv");
+        assert_eq!(a.n_threads, 100);
+        assert_eq!(a.out_file, "out.json");
+        assert_eq!(a.migration_type, Some(MigrationType::Standard));
+        assert!(!a.wait_headers);
+        assert!(!a.fast);
+        assert!(!a.no_progress);
+        assert!(!a.multipath);
+        assert!(a.migration_ip.is_none());
+        assert!(a.primary_ip.is_none());
+    }
+
+    #[test]
+    fn multipath_short_flag() {
+        assert!(parse(&["-p", "f.csv"]).multipath);
+    }
+
+    #[test]
+    fn multipath_long_flag() {
+        assert!(parse(&["--multipath", "f.csv"]).multipath);
+    }
+
+    #[test]
+    fn no_progress_flag() {
+        assert!(parse(&["--no-progress", "f.csv"]).no_progress);
+    }
+
+    #[test]
+    fn fast_and_wait_headers_flags() {
+        let a = parse(&["-f", "-w", "f.csv"]);
+        assert!(a.fast);
+        assert!(a.wait_headers);
+        let a = parse(&["--fast", "--wait-headers", "f.csv"]);
+        assert!(a.fast);
+        assert!(a.wait_headers);
+    }
+
+    #[test]
+    fn migration_types() {
+        assert_eq!(parse(&["-t", "standard", "f"]).migration_type, Some(MigrationType::Standard));
+        assert_eq!(parse(&["-t", "passive", "f"]).migration_type, Some(MigrationType::Passive));
+        assert_eq!(parse(&["--type", "reuseCID", "f"]).migration_type, Some(MigrationType::ReusedCID));
+        assert_eq!(parse(&["-t", "none", "f"]).migration_type, None);
+    }
+
+    #[test]
+    fn addresses_v4_and_v6() {
+        let a = parse(&["-a", "192.0.2.1", "-m", "2001:db8::1", "f"]);
+        assert_eq!(a.primary_ip, Some("192.0.2.1".parse().unwrap()));
+        assert_eq!(a.migration_ip, Some("2001:db8::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn threads_and_output() {
+        let a = parse(&["--threads", "7", "-o", "res.json", "f"]);
+        assert_eq!(a.n_threads, 7);
+        assert_eq!(a.out_file, "res.json");
+    }
+}

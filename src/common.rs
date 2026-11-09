@@ -193,3 +193,43 @@ impl fmt::Display for TestResult {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv6Addr};
+
+    fn result() -> TestResult {
+        let target = Target::new(IpAddr::V6(Ipv6Addr::LOCALHOST), "https://[::1]:443".to_string(), 443);
+        TestResult::from_target(&target)
+    }
+
+    #[test]
+    fn json_omits_multipath_when_not_tested() {
+        assert!(!result().to_string().contains("multipath_supported"));
+    }
+
+    #[test]
+    fn json_reports_multipath_true_and_false() {
+        let mut r = result();
+        r.multipath_supported = Some(true);
+        assert!(r.to_string().contains("\"multipath_supported\":true"));
+        r.multipath_supported = Some(false);
+        assert!(r.to_string().contains("\"multipath_supported\":false"));
+    }
+
+    #[test]
+    fn json_reports_multipath_even_on_error() {
+        let mut r = result();
+        r.error = Some(TestError::Timeout);
+        r.multipath_supported = Some(true);
+        let s = r.to_string();
+        assert!(s.contains("\"error\":\"Timeout\""));
+        assert!(s.contains("\"multipath_supported\":true"));
+    }
+
+    #[test]
+    fn json_includes_ipv6_peer_addr() {
+        assert!(result().to_string().contains("\"peer_addr\":\"[::1]:443\""));
+    }
+}

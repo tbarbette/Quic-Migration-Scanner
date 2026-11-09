@@ -115,4 +115,99 @@ mod tests {
         assert!(result.handshake_done, "handshake failed: {:?}", result.error);
         assert_eq!(result.multipath_supported, Some(false));
     }
+
+    use crate::test_server::{spawn_with, Opts};
+
+    fn status(result: &TestResult) -> Option<String> {
+        result.response_headers.as_ref()?.get(":status").cloned()
+    }
+
+    #[test]
+    fn plain_request_gets_http_response() {
+        let addr = crate::test_server::spawn(false);
+        let result = test_migration(&target_for(addr.port()), None, None, false, None, false, false);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(status(&result).as_deref(), Some("200"));
+        assert_eq!(result.multipath_supported, None, "multipath must only be reported with -p");
+        assert!(!result.migrated);
+    }
+
+    #[test]
+    fn peer_disable_active_migration_is_reported() {
+        for disable in [false, true] {
+            let addr = spawn_with(Opts { disable_active_migration: disable, ..Opts::default() }).unwrap();
+            let result = test_migration(&target_for(addr.port()), None, None, false, None, true, false);
+            assert!(result.handshake_done, "{:?}", result.error);
+            assert_eq!(result.peer_disable_active_migration, Some(disable));
+        }
+    }
+
+    #[test]
+    fn redirects_are_followed() {
+        let addr = spawn_with(Opts { redirect: true, ..Opts::default() }).unwrap();
+        let result = test_migration(&target_for(addr.port()), None, None, false, None, false, false);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(status(&result).as_deref(), Some("200"));
+    }
+
+    #[test]
+    fn ipv6_target_handshake_and_multipath() {
+        let Some(addr) = spawn_with(Opts { ipv6: true, multipath: true, ..Opts::default() }) else {
+            eprintln!("skipping: no IPv6 loopback on this machine");
+            return;
+        };
+        let target = Target {
+            domain: format!("https://[::1]:{}", addr.port()),
+            ip: IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            port: addr.port(),
+        };
+        let result = test_migration(&target, None, None, false, None, false, true);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert!(result.handshake_done);
+        assert_eq!(result.multipath_supported, Some(true));
+        assert_eq!(result.peer_addr, Some(addr));
+        assert_eq!(status(&result).as_deref(), Some("200"));
+    }
+
+    #[test]
+    fn ipv6_target_migration() {
+        let Some(addr) = spawn_with(Opts { ipv6: true, ..Opts::default() }) else {
+            eprintln!("skipping: no IPv6 loopback on this machine");
+            return;
+        };
+        let target = Target {
+            domain: format!("https://[::1]:{}", addr.port()),
+            ip: IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            port: addr.port(),
+        };
+        let result = test_migration(&target, None, None, false, Some(MigrationType::Standard), true, false);
+        assert!(result.handshake_done, "{:?}", result.error);
+        assert!(result.migrated, "v6 migration failed: {:?}", result.error);
+    }
+
+    #[test]
+    fn migration_succeeds_for_each_type() {
+        for ty in [MigrationType::Standard, MigrationType::Passive, MigrationType::ReusedCID] {
+            let addr = crate::test_server::spawn(false);
+            let result = test_migration(&target_for(addr.port()), None, None, false, Some(ty), true, false);
+            assert!(result.handshake_done, "{:?}: {:?}", ty, result.error);
+            assert!(result.migrated, "{:?} migration did not happen: {:?}", ty, result.error);
+        }
+    }
+
+    #[test]
+    fn migration_after_headers_with_wait_headers() {
+        let addr = crate::test_server::spawn(false);
+        let result = test_migration(&target_for(addr.port()), None, None, true, Some(MigrationType::Standard), false, false);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(status(&result).as_deref(), Some("200"));
+    }
+
+    #[test]
+    fn unreachable_target_reports_error() {
+        let result = test_migration(&target_for(1), None, None, false, None, true, true);
+        assert!(result.error.is_some());
+        assert!(!result.handshake_done);
+        assert_eq!(result.multipath_supported, None);
+    }
 }

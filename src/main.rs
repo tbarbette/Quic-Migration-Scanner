@@ -169,3 +169,42 @@ fn create_url(domain: &str, ip: &str, port: u16) -> String{
     }
     format!("https://{:?}:{}",domain,port).trim().replace('"', "")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_with_domain_and_port() {
+        let t = create_target("192.0.2.1,example.com,8443").unwrap();
+        assert_eq!(t.ip, "192.0.2.1".parse::<IpAddr>().unwrap());
+        assert_eq!(t.port, 8443);
+        assert_eq!(t.domain, "https://example.com:8443");
+    }
+
+    #[test]
+    fn target_port_defaults_to_443() {
+        assert_eq!(create_target("192.0.2.1,example.com").unwrap().port, 443);
+        assert_eq!(create_target("192.0.2.1,example.com,").unwrap().port, 443);
+        assert_eq!(create_target("192.0.2.1,example.com,notaport").unwrap().port, 443);
+    }
+
+    #[test]
+    fn target_without_domain_uses_ip_v4() {
+        let t = create_target("192.0.2.1,,4433").unwrap();
+        assert_eq!(t.domain, "https://192.0.2.1:4433");
+    }
+
+    #[test]
+    fn target_without_domain_brackets_ip_v6() {
+        let t = create_target("2001:db8::1,,4433").unwrap();
+        assert_eq!(t.ip, "2001:db8::1".parse::<IpAddr>().unwrap());
+        assert_eq!(t.domain, "https://[2001:db8::1]:4433");
+        assert!(url::Url::parse(&t.domain).is_ok());
+    }
+
+    #[test]
+    fn target_with_invalid_ip_is_skipped() {
+        assert!(create_target("not-an-ip,example.com,443").is_none());
+    }
+}
