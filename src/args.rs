@@ -16,6 +16,7 @@ pub struct Args {
     pub primary_ip: Option<IpAddr>,
     pub fast: bool,
     pub no_progress: bool,
+    pub multipath: bool,
 }
 
 pub const USAGE: &str = "Usage:
@@ -32,6 +33,7 @@ Options:
   -t --type TYPE                Change the type of migration checked [default: standard].
   -f --fast                     Shutdown the connection once headers are received.
   --no-progress                 Disable the progress bar.
+  -p --multipath                Test multipath QUIC support (advertises multipath in the handshake and reports whether the server negotiates it).
 ";
 
 impl Parseable for Args {
@@ -65,7 +67,8 @@ impl Parseable for Args {
         };
         let fast = args.get_bool("--fast");
         let no_progress = args.get_bool("--no-progress");
-        Args { 
+        let multipath = args.get_bool("--multipath");
+        Args {
             file_path,
             n_threads,
             out_file,
@@ -75,6 +78,7 @@ impl Parseable for Args {
             primary_ip,
             fast,
             no_progress,
+            multipath,
         }
     }
 }

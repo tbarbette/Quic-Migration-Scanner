@@ -57,7 +57,7 @@ pub struct QuicheClient{
 }
 
 impl QuicheClient{
-    pub fn init(target: &Target, primary_ip: Option<IpAddr>, migration_ip: Option<IpAddr>) -> Result<QuicheClient, TestError>{
+    pub fn init(target: &Target, primary_ip: Option<IpAddr>, migration_ip: Option<IpAddr>, multipath: bool) -> Result<QuicheClient, TestError>{
 
         let buf = [0; 65535];
         let out = [0; MAX_DATAGRAM_SIZE];
@@ -149,7 +149,11 @@ impl QuicheClient{
     
         config.set_max_connection_window(25165824);
         config.set_max_stream_window(16777216);
-    
+
+        if multipath {
+            config.set_initial_max_path_id(2);
+        }
+
         let mut keylog = None;
     
         if let Some(keylog_path) = std::env::var_os("SSLKEYLOGFILE") {
@@ -235,10 +239,10 @@ impl QuicheClient{
             scid,
         );
 
-        while self.quiche_conn.as_mut().unwrap().source_cids_left() > 0 {
+        while self.quiche_conn.as_mut().unwrap().scids_left() > 0 {
             let (scid, reset_token) = generate_cid_and_reset_token(&rng);
 
-            if self.quiche_conn.as_mut().unwrap().new_source_cid(&scid, reset_token, false).is_err() {
+            if self.quiche_conn.as_mut().unwrap().new_scid(&scid, reset_token, false).is_err() {
                 break;
             }
             debug!("Added connectionID");
@@ -414,7 +418,7 @@ impl QuicheClient{
             Ok(id) => id
         };
 
-        info!("Migrated to {:?} ; new connectionID : {}", new_ip, conn_id);
+        info!("Migrated to {:?} ; new connectionID : {:?}", new_ip, conn_id);
 
         match self.flush_output(self.force_socket){
             Err(e) => Err(e),
@@ -448,29 +452,29 @@ impl QuicheClient{
     fn handle_path_events(&mut self){
 
         let conn = self.quiche_conn.as_mut().unwrap();
-        while let Some(qe) = conn.path_event_next() {
+        while let Some((path_id, qe)) = conn.path_event_next() {
             match qe {
                 quiche::PathEvent::New(..) => unreachable!(),
 
                 quiche::PathEvent::Validated(local_addr, peer_addr) => {
                     info!(
-                        "Path ({}, {}) is now validated",
-                        local_addr, peer_addr
+                        "Path {} ({}, {}) is now validated",
+                        path_id, local_addr, peer_addr
                     );
                     self.path_validated = true;
                 },
 
                 quiche::PathEvent::FailedValidation(local_addr, peer_addr) => {
                     info!(
-                        "Path ({}, {}) failed validation",
-                        local_addr, peer_addr
+                        "Path {} ({}, {}) failed validation",
+                        path_id, local_addr, peer_addr
                     );
                 },
 
-                quiche::PathEvent::Closed(local_addr, peer_addr) => {
+                quiche::PathEvent::Closed(local_addr, peer_addr, err) => {
                     info!(
-                        "Path ({}, {}) is now closed and unusable",
-                        local_addr, peer_addr
+                        "Path {} ({}, {}) is now closed and unusable (error {})",
+                        path_id, local_addr, peer_addr, err
                     );
                 },
 
@@ -485,6 +489,12 @@ impl QuicheClient{
                     );
                 },
                 quiche::PathEvent::PeerMigrated(..) => unreachable!(),
+                quiche::PathEvent::PeerPathStatus(addrs, status) => {
+                    info!(
+                        "Peer advertised path status {:?} for {:?}",
+                        status, addrs
+                    );
+                },
             }
         }
     }
@@ -872,6 +882,14 @@ impl QuicheClient{
             None => None
         }
     }
+
+    pub fn peer_disables_active_migration(&self) -> Option<bool>{
+        self.quiche_conn.as_ref()?.peer_transport_params().map(|tp| tp.disable_active_migration)
+    }
+
+    pub fn multipath_supported(&self) -> Option<bool>{
+        Some(self.quiche_conn.as_ref()?.is_multipath_enabled())
+    }
 }
 
 fn generate_cid_and_reset_token<T: SecureRandom>(
@@ -915,7 +933,7 @@ mod tests {
             port: 443,
         };
 
-        QuicheClient::init(&target, None, None).unwrap()
+        QuicheClient::init(&target, None, None, false).unwrap()
     }
 
     fn get_header_value(headers: &Option<Vec<Header>>, name: &[u8]) -> String {

@@ -2,6 +2,8 @@ mod common;
 mod args;
 mod quiche_client;
 mod tester;
+#[cfg(test)]
+mod test_server;
 #[macro_use]
 extern crate log;
 use crate::tester::*;
@@ -59,7 +61,7 @@ fn main() {
                     Ok(val) => val,
                     Err(_) => break
                 };
-                let result = test_migration(&target, args.primary_ip, args.migration_ip, args.wait_headers, args.migration_type, args.fast);
+                let result = test_migration(&target, args.primary_ip, args.migration_ip, args.wait_headers, args.migration_type, args.fast, args.multipath);
                 quic_thread_send.send(result).unwrap();
             }
         });
@@ -143,17 +145,27 @@ fn create_target(line: &str) -> Option<Target>{
             return None;
         }
     };
-    let domain = create_url(parts[1].trim(), parts[0].trim());
+    let port: u16 = match parts.get(2).map(|p| p.trim()) {
+        Some("") | None => 443,
+        Some(val) => match val.parse() {
+            Ok(port) => port,
+            Err(e) => {
+                error!("Error parsing port from line {}: {:?}, defaulting to 443", line, e);
+                443
+            }
+        }
+    };
+    let domain = create_url(parts[1].trim(), parts[0].trim(), port);
 
-    Some(Target::new(ip, domain))
+    Some(Target::new(ip, domain, port))
 }
 
-fn create_url(domain: &str, ip: &str) -> String{
+fn create_url(domain: &str, ip: &str, port: u16) -> String{
     if domain == ""{
         if ip.contains(":"){
-            return format!("https://[{}]",ip).trim().replace('"', "");
+            return format!("https://[{}]:{}",ip,port).trim().replace('"', "");
         }
-        return format!("https://{:?}",ip).trim().replace('"', "");
+        return format!("https://{:?}:{}",ip,port).trim().replace('"', "");
     }
-    format!("https://{:?}",domain).trim().replace('"', "")
+    format!("https://{:?}:{}",domain,port).trim().replace('"', "")
 }

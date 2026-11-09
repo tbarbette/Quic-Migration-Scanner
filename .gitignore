@@ -1,6 +1,9 @@
 // Ignore binaries
 /target
 
+// Ignore local quiche checkout (vendored, not part of this repo's history)
+/quiche
+
 // Ignore Cargo.lock
 Cargo.lock
 
