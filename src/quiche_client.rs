@@ -119,8 +119,8 @@ impl QuicheClient{
 
             None => format!("{}", url.host_str().unwrap())
         };
-        println!("Authority: {}", authority);
-        println!("Port: {:?}", url.port());
+        debug!("Authority: {}", authority);
+        debug!("Port: {:?}", url.port());
         let mut hdrs = vec![
                 quiche::h3::Header::new(b":method", b"GET"),
                 quiche::h3::Header::new(b":scheme", url.scheme().as_bytes()),
@@ -281,7 +281,7 @@ impl QuicheClient{
         } 
         let stream_id = match custom_headers {
             Some(hdrs) => {
-                println!("Using custom headers: {:?}", hdrs);
+                debug!("Using custom headers: {:?}", hdrs);
                 match self.h3_conn.as_mut().unwrap().send_request(self.quiche_conn.as_mut().unwrap(), &hdrs, true){
                     Ok(val) => val,
                     Err(e) => {
@@ -291,7 +291,7 @@ impl QuicheClient{
                 }
             },
             None => {
-                println!("Using default headers: {:?}", self.request_headers);
+                debug!("Using default headers: {:?}", self.request_headers);
                 match self.h3_conn.as_mut().unwrap().send_request(self.quiche_conn.as_mut().unwrap(), &self.request_headers, true){
                     Ok(val) => val,
                     Err(e) => {
@@ -303,7 +303,7 @@ impl QuicheClient{
         };
         debug!("sent request id: {}", stream_id);
         while !self.quiche_conn.as_mut().unwrap().is_closed() && !self.quiche_conn.as_mut().unwrap().stream_finished(stream_id) && !self.end_now && !self.redirect{
-            println!("Stream not finished yet: {}", self.quiche_conn.as_mut().unwrap().stream_finished(stream_id));
+            trace!("Stream not finished yet: {}", self.quiche_conn.as_mut().unwrap().stream_finished(stream_id));
             match self.flush_output(self.force_socket){
                 Err(e) => return Err(e),
                 _ => ()
@@ -785,7 +785,7 @@ impl QuicheClient{
                     self.response_headers = Some(header_map);
 
                     if migrate{
-                        println!("Migrating!");
+                        debug!("Migrating!");
                         match self.probe_path_and_migrate(migration_type.unwrap()){
                             Ok(status) => {
                                 self.migration_status = Some(status);
@@ -803,7 +803,7 @@ impl QuicheClient{
                 },
     
                 Ok((stream_id, quiche::h3::Event::Data)) => {
-                    println!("Receiving data on stream {}", stream_id);
+                    trace!("Receiving data on stream {}", stream_id);
                     while let Ok(read) =
                     self.h3_conn.as_mut().unwrap().recv_body(self.quiche_conn.as_mut().unwrap(), stream_id, &mut self.buf)
                     {

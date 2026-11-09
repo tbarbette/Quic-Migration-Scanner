@@ -6,3 +6,6 @@ Cargo.lock
 
 // Ignore outputs
 *.json
+// Editor history and local checkout
+.vimhistory/
+/quiche/
