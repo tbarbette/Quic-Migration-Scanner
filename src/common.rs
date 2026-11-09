@@ -15,11 +15,11 @@ pub struct Target{
 }
 
 impl Target{
-    pub fn new(ip: IpAddr,domain: String) -> Target{
-        Target{ 
+    pub fn new(ip: IpAddr,domain: String, port: u16) -> Target{
+        Target{
             ip,
             domain,
-            port: 443
+            port
         }
     }
 }
@@ -82,6 +82,8 @@ pub struct TestResult{
     pub response_headers: Option<HashMap<String,String>>,
     pub duration: Option<Duration>,
     pub stats: Option<Stats>,
+    pub peer_disable_active_migration: Option<bool>,
+    pub multipath_supported: Option<bool>,
 }
 
 impl TestResult {
@@ -98,6 +100,8 @@ impl TestResult {
             response_headers: None,
             duration: None,
             stats: None,
+            peer_disable_active_migration: None,
+            multipath_supported: None,
         }
     }
 }
@@ -139,8 +143,8 @@ pub fn prepare_hdr(url: &str) -> Option<Vec<quiche::h3::Header>>{
 }
 
 
-fn format_stats(stats: &Stats) -> String{
-    format!("{{\"lost\":{},\"sent_bytes\":{},\"recv_bytes\":{},\"paths\":{},\"migration_disabled\":{}}}", stats.lost, stats.sent_bytes, stats.recv_bytes, stats.paths_count, stats.peer_disable_active_migration)
+fn format_stats(stats: &Stats, migration_disabled: Option<bool>) -> String{
+    format!("{{\"lost\":{},\"sent_bytes\":{},\"recv_bytes\":{},\"paths\":{},\"migration_disabled\":{}}}", stats.lost, stats.sent_bytes, stats.recv_bytes, stats.paths_count, migration_disabled.unwrap_or(false))
 }
 
 impl fmt::Display for TestResult {
@@ -171,17 +175,21 @@ impl fmt::Display for TestResult {
             None => format!("")
         };
         let stats = match &self.stats{
-            Some(val) => format!(",\"conn_stats\":{}", format_stats(val)),
+            Some(val) => format!(",\"conn_stats\":{}", format_stats(val, self.peer_disable_active_migration)),
+            None => format!("")
+        };
+        let multipath = match &self.multipath_supported{
+            Some(val) => format!(",\"multipath_supported\":{}", val),
             None => format!("")
         };
         match &self.error {
             Some(err) => {
                 match err {
                     TestError::ResolutionError => write!(f,"{{\"url\":\"{}\",\"error\":\"{:?}\"}}", self.url, err),
-                    _ => write!(f,"{{\"url\":\"{}\",\"test_type\":\"{}\",\"error\":\"{:?}\",\"performed_handshake\":{},\"performed_migration\":{}{}{}{}{}{}{}}}", self.url, self.migration_type, err, self.handshake_done, self.migrated,peer_addr, migration_status, server, headers, duration, stats)
+                    _ => write!(f,"{{\"url\":\"{}\",\"test_type\":\"{}\",\"error\":\"{:?}\",\"performed_handshake\":{},\"performed_migration\":{}{}{}{}{}{}{}{}}}", self.url, self.migration_type, err, self.handshake_done, self.migrated,peer_addr, migration_status, server, headers, duration, stats, multipath)
                 }
             },
-            None => write!(f,"{{\"url\":\"{}\",\"test_type\":\"{}\",\"performed_handshake\":{},\"performed_migration\":{}{}{}{}{}{}{}}}", self.url, self.migration_type, self.handshake_done, self.migrated, peer_addr, migration_status, server, headers, duration, stats)
+            None => write!(f,"{{\"url\":\"{}\",\"test_type\":\"{}\",\"performed_handshake\":{},\"performed_migration\":{}{}{}{}{}{}{}{}}}", self.url, self.migration_type, self.handshake_done, self.migrated, peer_addr, migration_status, server, headers, duration, stats, multipath)
         }
     }
 }
